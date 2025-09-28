@@ -7,6 +7,7 @@ PGPASSWORD=$PGPASSWORD psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER_NAME" -d or
 echo "Connection done"
 
 # Clone repo
+git ls-remote https://$GIT_TOKEN@github.com/devtron-labs/devtron-enterprise
 git clone --depth 1 https://$GIT_TOKEN@github.com/devtron-labs/devtron-enterprise -b develop
 cd devtron-enterprise/scripts/sql
 
