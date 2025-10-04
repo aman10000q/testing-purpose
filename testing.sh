@@ -25,7 +25,7 @@ declare -A casbinMigrationConfig=(
 declare -A gitSensorMigrationConfig=(
   [repoUrl]="devtron-labs/devtron-services-enterprise"
   [branch]="$gitSensorBranch"
-  [directory]="gitsensor/scripts/sql"
+  [directory]="git-sensor/scripts/sql"
   [cloneDir]="git"
   [migToRunDown]=0
 )
