@@ -9,7 +9,7 @@ echo "Connection done"
 declare -A orchMigrationConfig=(
   [repoUrl]="devtron-labs/devtron-enterprise"
   [branch]="$orchBranch"
-  [directory]="devtron-enterprise/scripts/sql"
+  [directory]="scripts/sql"
   [cloneDir]="orch"
   [migToRunDown]=0
 )
@@ -17,7 +17,7 @@ declare -A orchMigrationConfig=(
 declare -A casbinMigrationConfig=(
   [repoUrl]="devtron-labs/devtron-enterprise"
   [branch]="$casbinBranch"
-  [directory]="devtron-enterprise/scripts/casbin"
+  [directory]="scripts/casbin"
   [cloneDir]="casbin"
   [migToRunDown]=0
 )
@@ -25,7 +25,7 @@ declare -A casbinMigrationConfig=(
 declare -A gitSensorMigrationConfig=(
   [repoUrl]="devtron-labs/devtron-services-enterprise"
   [branch]="$gitSensorBranch"
-  [directory]="devtron-enterprise/git-sensor/scripts/sql"
+  [directory]="gitsensor/scripts/sql"
   [cloneDir]="git"
   [migToRunDown]=0
 )
@@ -33,7 +33,7 @@ declare -A gitSensorMigrationConfig=(
 declare -A lensMigrationConfig=(
   [repoUrl]="devtron-labs/lens"
   [branch]="$lensBranch"
-  [directory]="lens/scripts/sql"
+  [directory]="scripts/sql"
   [cloneDir]="lens"
   [migToRunDown]=0
 )
