@@ -1,34 +1,54 @@
 #!/bin/bash
+set -euo pipefail
+apt update && apt install -yq tzdata jq curl
+
 baseUrl="https://staging.devtron.info/orchestrator"
-set -e 
+
 declare -A microservicesAppIds=(
-[casbin]=
-[dashboard]=
-[orchestrator]=
-[kubelink]=
-[kubewatch]=
-[lens]=
-[notifier]=
-[imageScanner]=
-[gitSensor]=
+  [casbin]=1064
+  [dashboard]=1072
+  [orchestrator]=1929
+  [kubelink]=1063
+  [kubewatch]=1070
+  [lens]=1071
+  [notifier]=1069
+  [imageScanner]=1067
+  [gitSensor]=1135
 )
 
-declare -A qaVmCdIds=([qa-devtroncd-5]=0 [qa-devtroncd-4]=0)
+declare -A qaVmCdIds=(
+  [qa-devtroncd-5]=0
+  [qa-devtroncd-4]=0
+)
+declare -A microserviceImages=(
+  [casbin]=""
+  [dashboard]=""
+  [orchestrator]=""
+  [kubelink]=""
+  [kubewatch]=""
+  [lens]=""
+  [notifier]=""
+  [imageScanner]=""
+  [gitSensor]=""
+)
 
-getQaEnvIds(){
-  local microserviceName=$1;
-  local apiEndpoint="$baseUrl/app/cd-pipeline/$microserviceName";
+getQaEnvIds() {
+  local appId=$1;
+  local vmName=$2;
+  local apiEndpoint="$baseUrl/app/cd-pipeline/$appId";
   local response;
+  response=$(curl -s -H "Cookie: argocd.token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6IkFQSS1UT0tFTjpzdXBlci1hZG1pbi10b2tlbiIsInZlcnNpb24iOiIxIiwiaXNzIjoiYXBpVG9rZW5Jc3N1ZXIifQ.jS0Keid81Ix4c4uzE1T-RZonPQn2WTqax_FDlYRQJ5I" "$apiEndpoint")
+  qaVmCdIds[$vmName]=$(echo "$response" | jq --arg envName "$vmName" -r '.result.pipelines[]? | select(.environmentName == $envName) | .id' 2>/dev/null || echo "")
   
-  for vm in "${!qaVmCdIds[@]}"; do
-    response=$(curl -s -H "Cookie: argocd.token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6IkFQSS1UT0tFTjpzdXBlci1hZG1pbi10b2tlbiIsInZlcnNpb24iOiIxIiwiaXNzIjoiYXBpVG9rZW5Jc3N1ZXIifQ.jS0Keid81Ix4c4uzE1T-RZonPQn2WTqax_FDlYRQJ5I" "$apiEndpoint")
-    qaVmCdIds[$vm]=$(jq --arg envName $vm -r '.result.pipelines[] | select(.environmentName == $envName) | .id');
-    
+}
+triggerDeployment(){
+  local envIdToTrigger=$1;
+  local imageToDeploy=$2;
 }
 
-for microservice in "${!microservicesAppIds[@]}"; do
-  getQaEndIds "$(microServiceAppIds[$microService])"
-  echo "printing the env ids for $microservice"
-  echo "$(qaVmCdIds[qa-devtroncd-5])"
-  echo "$(qaVmCdIds[qa-devtroncd-4])"
+for microserviceId in "${!microservicesAppIds[@]}"; do
+  for vm in "${!qaVmCdIds[@]}"; do
+    getQaEnvIds ${microservicesAppIds[$microserviceId]} $vm
+    triggerDeployment ${qaVmCdIds[$vm]} ${microserviceImages[$microserviceId]}
+  done
 done
