@@ -44,6 +44,9 @@ getQaEnvIds() {
 triggerDeployment(){
   local envIdToTrigger=$1;
   local imageToDeploy=$2;
+  local apiEndpoint="$baseUrl/";
+  local response;
+  response=$(curl -s )
 }
 
 for microserviceId in "${!microservicesAppIds[@]}"; do
