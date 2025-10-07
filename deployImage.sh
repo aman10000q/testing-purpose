@@ -85,6 +85,58 @@ waitForNewResources() {
   done
 }
 
+updateConfigImages() {
+  local appName=$1
+  local environmentId=$2
+  local newAppSyncImage=$3
+  local newDefaultCiImage=$4
+
+  local getUrl="$baseUrl/config/data?appName=$appName&configType=PublishedOnly&resourceName=orchestrator-cm&resourceType=ConfigMap"
+  local updateUrl="$baseUrl/config/data"
+
+  # 1️⃣ Fetch existing config
+  local response
+  response=$(curl -s -H "Cookie: argocd.token=YOUR_TOKEN" "$getUrl")
+
+  # 2️⃣ Extract appId and current data object
+  local appId
+  appId=$(echo "$response" | jq -r '.result.configMapData.data.appId')
+
+  local currentData
+  currentData=$(echo "$response" | jq '.result.configMapData.data.configData[0].data')
+
+  # 3️⃣ Update only the required fields
+  local updatedData
+  updatedData=$(echo "$currentData" | jq \
+    --arg appSync "$newAppSyncImage" \
+    --arg ciImage "$newDefaultCiImage" \
+    '.APP_SYNC_IMAGE = $appSync | .DEFAULT_CI_IMAGE = $ciImage')
+
+  # 4️⃣ Prepare update payload
+  local payload
+  payload=$(jq -n --argjson data "$updatedData" --arg appId "$appId" --arg envId "$environmentId" '{
+      appId: ($appId | tonumber),
+      environmentId: ($envId | tonumber),
+      configData: [
+          {
+              name: "orchestrator-cm",
+              type: "environment",
+              external: false,
+              data: $data,
+              mergeStrategy: "replace"
+          }
+      ],
+      isExpressEdit: false
+  }')
+
+  #  Send update request
+  curl -s -X POST -H "Content-Type: application/json" \
+       -H "Cookie: argocd.token=YOUR_TOKEN" \
+       -d "$payload" \
+       "$updateUrl" | jq
+}
+
+
 
 for microserviceId in "${!microservicesAppIds[@]}"; do
   for vm in "${!qaVmCdIds[@]}"; do
