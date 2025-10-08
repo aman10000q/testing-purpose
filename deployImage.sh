@@ -5,20 +5,20 @@ apt update && apt install -yq tzdata jq curl
 baseUrl="https://staging.devtron.info/orchestrator"
 
 declare -A microservicesAppIds=(
-  [casbin]=1064
-  [dashboard]=1072
+  # [casbin]=1064
+  # [dashboard]=1072
   [orchestrator]=1929
-  [kubelink]=1063
-  [kubewatch]=1070
-  [lens]=1071
-  [notifier]=1069
-  [imageScanner]=1067
-  [gitSensor]=1135
+  # [kubelink]=1063
+  # [kubewatch]=1070
+  # [lens]=1071
+  # [notifier]=1069
+  # [imageScanner]=1067
+  # [gitSensor]=1135
 )
 
 declare -A qaVmCdIds=(
   [qa-devtroncd-5]=0
-  [qa-devtroncd-4]=0
+  # [qa-devtroncd-4]=0
 )
 declare -A qaVmEnvIds=(
 [qa-devtroncd-5]=0
@@ -112,7 +112,7 @@ updateConfigMapImages() {
     --data-urlencode "resourceName=$resourceName" \
     --data-urlencode "resourceType=ConfigMap" \
     -H "Content-Type: application/json" \
-    -H "token: $devtronApiToken")
+    -H "Cookie: argocd.token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6IkFQSS1UT0tFTjpzdXBlci1hZG1pbi10b2tlbiIsInZlcnNpb24iOiIxIiwiaXNzIjoiYXBpVG9rZW5Jc3N1ZXIifQ.jS0Keid81Ix4c4uzE1T-RZonPQn2WTqax_FDlYRQJ5I")
 
   # Extract the configData object
   local configData
@@ -151,7 +151,7 @@ updateConfigMapImages() {
   echo "🔹 Updating ConfigMap with new images..."
   curl -s -X POST "$postUrl" \
     -H "Content-Type: application/json" \
-    -H "token: $devtronApiToken" \
+    -H "Cookie: argocd.token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6IkFQSS1UT0tFTjpzdXBlci1hZG1pbi10b2tlbiIsInZlcnNpb24iOiIxIiwiaXNzIjoiYXBpVG9rZW5Jc3N1ZXIifQ.jS0Keid81Ix4c4uzE1T-RZonPQn2WTqax_FDlYRQJ5I" \
     -d "$payload"
 
   echo "✅ ConfigMap updated successfully!"
