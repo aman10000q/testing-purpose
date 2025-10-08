@@ -34,6 +34,8 @@ declare -A microserviceImages=(
   [notifier]=""
   [imageScanner]=""
   [gitSensor]=""
+  [ciRunner]=""
+  [chartSync]=""
 )
 
 getQaCdIds() {
@@ -85,62 +87,85 @@ waitForNewResources() {
   done
 }
 
-updateConfigImages() {
-  local appName=$1
-  local environmentId=$2
-  local newAppSyncImage=$3
-  local newDefaultCiImage=$4
+updateConfigMapImages() {
+  local defaultCiImage="$1"
+  local appsyncImage="$2"
+  local appName="$3"
+  local envName="$4"
+  local resourceName="$5"
+  local resourceId="$6"
 
-  local getUrl="$baseUrl/config/data?appName=$appName&configType=PublishedOnly&resourceName=orchestrator-cm&resourceType=ConfigMap"
-  local updateUrl="$baseUrl/config/data"
+  # Base URL of the Devtron orchestrator API
+  local baseUrl="https://staging.devtron.info/orchestrator/config/data"
 
-  # 1️⃣ Fetch existing config
+  echo "🔹 Fetching existing ConfigMap..."
   local response
-  response=$(curl -s -H "Cookie: argocd.token=YOUR_TOKEN" "$getUrl")
+  response=$(curl -s -G "$baseUrl" \
+    --data-urlencode "appName=$appName" \
+    --data-urlencode "envName=$envName" \
+    --data-urlencode "configType=PublishedOnly" \
+    --data-urlencode "resourceId=$resourceId" \
+    --data-urlencode "resourceName=$resourceName" \
+    --data-urlencode "resourceType=ConfigMap" \
+    -H "Content-Type: application/json" \
+    -H "token: $devtronApiToken")
 
-  # 2️⃣ Extract appId and current data object
-  local appId
-  appId=$(echo "$response" | jq -r '.result.configMapData.data.appId')
+  # Extract the ConfigMap 'data' part
+  local configData
+  configData=$(echo "$response" | jq '.result.configMapData.data.configData[0].data')
 
-  local currentData
-  currentData=$(echo "$response" | jq '.result.configMapData.data.configData[0].data')
+  if [ -z "$configData" ] || [ "$configData" == "null" ]; then
+    echo "❌ Failed to fetch ConfigMap data."
+    return 1
+  fi
 
-  # 3️⃣ Update only the required fields
-  local updatedData
-  updatedData=$(echo "$currentData" | jq \
-    --arg appSync "$newAppSyncImage" \
-    --arg ciImage "$newDefaultCiImage" \
-    '.APP_SYNC_IMAGE = $appSync | .DEFAULT_CI_IMAGE = $ciImage')
+  # Update the required image fields
+  local updatedConfigData
+  updatedConfigData=$(echo "$configData" | jq \
+    --arg defaultImage "$defaultCiImage" \
+    --arg appSyncImage "$appsyncImage" \
+    '.DEFAULT_CI_IMAGE = $defaultImage | .APP_SYNC_IMAGE = $appSyncImage'
+  )
 
-  # 4️⃣ Prepare update payload
+  # Prepare the full payload for POST
   local payload
-  payload=$(jq -n --argjson data "$updatedData" --arg appId "$appId" --arg envId "$environmentId" '{
-      appId: ($appId | tonumber),
-      environmentId: ($envId | tonumber),
+  payload=$(jq -n \
+    --argjson data "$updatedConfigData" \
+    --arg name "$resourceName" \
+    --arg type "environment" \
+    '{
       configData: [
-          {
-              name: "orchestrator-cm",
-              type: "environment",
-              external: false,
-              data: $data,
-              mergeStrategy: "replace"
-          }
-      ],
-      isExpressEdit: false
-  }')
+        {
+          name: $name,
+          type: $type,
+          data: $data
+        }
+      ]
+    }'
+  )
 
-  #  Send update request
-  curl -s -X POST -H "Content-Type: application/json" \
-       -H "Cookie: argocd.token=YOUR_TOKEN" \
-       -d "$payload" \
-       "$updateUrl" | jq
+  echo "🔹 Updating ConfigMap with new images..."
+  curl -s -X POST "$baseUrl" \
+    --data-urlencode "appName=$appName" \
+    --data-urlencode "envName=$envName" \
+    --data-urlencode "resourceId=$resourceId" \
+    --data-urlencode "resourceName=$resourceName" \
+    --data-urlencode "resourceType=ConfigMap" \
+    -H "Content-Type: application/json" \
+    -H "token: $devtronApiToken" \
+    -d "$payload"
+
+  echo "✅ ConfigMap updated successfully!"
 }
+
 
 
 
 for microserviceId in "${!microservicesAppIds[@]}"; do
   for vm in "${!qaVmCdIds[@]}"; do
     getQaCdIds ${microservicesAppIds[$microserviceId]} $vm
+    if [[ $microserviceId == "${microservicesAppIds[orchestrator]}" ]]; then
+      
     triggerDeployment ${qaVmCdIds[$vm]} ${microserviceImages[$microserviceId]}
     getQaEnvIds $vm
     waitForNewResources
