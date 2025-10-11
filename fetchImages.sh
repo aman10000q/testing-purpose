@@ -65,24 +65,22 @@ get_cd_id_for_pipeline() {
   echo "URL: $url"
   
   local response
-  response=$(curl -s -H "Cookie: argocd.token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6IkFQSS1UT0tFTjpzdXBlci1hZG1pbi10b2tlbiIsInZlcnNpb24iOiIxIiwiaXNzIjoiYXBpVG9rZW5Jc3N1ZXIifQ.jS0Keid81Ix4c4uzE1T-RZonPQn2WTqax_FDlYRQJ5I" "$url")
-  
-  echo "Response received (first 200 chars): ${response:0:200}"
+  response=$(curl -s -w "%{http_code}" -H "Cookie: argocd.token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6IkFQSS1UT0tFTjpzdXBlci1hZG1pbi10b2tlbiIsInZlcnNpb24iOiIxIiwiaXNzIjoiYXBpVG9rZW5Jc3N1ZXIifQ.jS0Keid81Ix4c4uzE1T-RZonPQn2WTqax_FDlYRQJ5I" "$url" -o /dev/null)
+  if [[ $response -ne 200 ]]; then 
+    send_slack "😱get api of cd details giving $response" $thread_id
+    exit 1 
+  fi
   
   cdId=$(echo "$response" | jq -r --arg branch "$branch" '
     .result.pipelines[] 
     | select(.environmentName == $branch)
     | .id
-  ' | head -1)
+  ' ) || {send_slack "😱 Not able to parse the response of cd details get api for app $appId and for cd $branch" $thread_id ; exit 1 ;}
   
   if [[ -z "$cdId" || "$cdId" == "null" ]]; then
-    echo "⚠️ No CD pipeline found for branch $branch in app $appId"
-    echo "Available environments:"
-    echo "$response" | jq -r '.result.pipelines[]? | .environmentName' 2>/dev/null || echo "Could not parse response"
-    return 1
+   send_slack "😱 Not able to find cd id for app $appId and env $branch" $thread_id ;
+   exit 1 ;
   fi
-  
-  echo "Found CD ID: $cdId"
   output_var=$cdId
   return 0
 }
@@ -90,10 +88,7 @@ get_cd_id_for_pipeline() {
 # Fetch latest deployed image from a CD pipeline
 get_latest_image() {
   local cdId=$1
-  
-  
   echo "Fetching latest deployed image for CD ID=$cdId..."
-  
   local currentUrl="$BASE_URL/app/cd-pipeline/$cdId/material?offset=0&size=20&stage=DEPLOY"
   echo "URL: $currentUrl"
   
@@ -109,8 +104,8 @@ get_latest_image() {
   ')
   
   if [[ -z "$image" ]]; then
-    echo " No latest image found for CD ID $cdId"
-    return 1
+    send_slack "😱 Not able to find the image deployed on this env $cdId" $thread_id
+    exit 1 
   fi
   
   echo " Latest image: $image"
