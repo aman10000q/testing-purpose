@@ -1,19 +1,19 @@
 
 #!/bin/bash
- set -e
+set -e
+source ./slackMessage.sh
 
-
-apt update && apt install -yq tzdata jq  curl
+# apt update && apt install -yq tzdata jq  curl
 # -------------------------
 # CONFIGURATION
 # -------------------------
 
 BASE_URL="https://staging.devtron.info/orchestrator"
 # Put your argocd token here
-ARGOCD_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6IkFQSS1UT0tFTjpzdXBlci1hZG1pbi10by1hZGQtY2x1c3RlcnMiLCJ2ZXJzaW9uIjoiMSIsImlzcyI6ImFwaVRva2VuSXNzdWVyIn0.A9v15OZa25EcilUOjR36M1leInPvX46ShxFSQPrqpWI"
+
 
 # Headers for curl
-COMMON_HEADERS=(-H "accept: */*" -H "accept-language: en-US,en;q=0.9" -H "Cookie: argocd.token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6IkFQSS1UT0tFTjpzdXBlci1hZG1pbi10b2tlbiIsInZlcnNpb24iOiIxIiwiaXNzIjoiYXBpVG9rZW5Jc3N1ZXIifQ.jS0Keid81Ix4c4uzE1T-RZonPQn2WTqax_FDlYRQJ5I")
+COMMON_HEADERS=(-H "accept: */*" -H "accept-language: en-US,en;q=0.9" -H "Cookie: argocd.token=$ARGOCD_TOKEN")
 
 # Microservices and their App IDs
 declare -A appIds=(
@@ -32,17 +32,17 @@ declare -A appIds=(
 
 # User-provided branches for each microservice
 declare -A userBranches=(
-  [dashboard]="shared-dcd-ent-12"
-  [orchestrator]="shared-dcd-ent-12"
-  [kubelink]="shared-dcd-ent-12"
-  [imageScanner]="shared-dcd-ent-12"
-  [notifier]="shared-dcd-ent-12"
-  [kubewatch]="shared-dcd-ent-12"
-  [lens]="shared-dcd-ent-12"
-  [casbin]="shared-dcd-ent-12"
-  [chartSync]="shared-dcd-ent-12"
-  [gitSensor]="shared-dcd-ent-12"
-  [ciRunner]="central-dev-ent"
+  [dashboard]="$dashboard"
+  [orchestrator]="$orchestrator"
+  [kubelink]="$kubelink"
+  [imageScanner]="$imageScanner"
+  [notifier]="$notifier"
+  [kubewatch]="$kubewatch"
+  [lens]="$lens"
+  [casbin]="$casbin"
+  [chartSync]="$chartSync"
+  [gitSensor]="$gitSensor"
+  [ciRunner]="$ciRunner"
 )
 
 # Associative array to store final images
@@ -142,3 +142,14 @@ echo "================ Latest Images ================"
 for svc in "${!latestImages[@]}"; do
   echo "$svc => ${latestImages[$svc]}"
 done
+export dashboardImage="${latestImages[dashboard]}"
+export orchestratorImage="${latestImages[orchestrator]}"
+export casbinImage="${latestImages[casbin]}"
+export lensImage="${latestImages[lens]}"
+export gitSensorImage="${latestImages[gitSensor]}"
+export kubelinkImage="${latestImages[kubelink]}"
+export kubewatchImage="${latestImages[kubewatch]}"
+export imageScannerImage="${latestImages[imageScanner]}"
+export notifierImage= "${latestImages[notifier]}"
+export ciRunnerImage="${latestImages[ciRunner]}"
+export chartSyncImage="${latestImages[chartSync]}"
