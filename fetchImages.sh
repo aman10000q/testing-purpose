@@ -1,19 +1,20 @@
 
 #!/bin/bash
 set -e
-source ./slackMessage.sh
+source sourcecode/slackMessage.sh
 
-# apt update && apt install -yq tzdata jq  curl
+apt update && apt install -yq tzdata jq  curl
+
 # -------------------------
 # CONFIGURATION
 # -------------------------
 
 BASE_URL="https://staging.devtron.info/orchestrator"
 # Put your argocd token here
-
+ARGOCD_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6IkFQSS1UT0tFTjpzdXBlci1hZG1pbi10by1hZGQtY2x1c3RlcnMiLCJ2ZXJzaW9uIjoiMSIsImlzcyI6ImFwaVRva2VuSXNzdWVyIn0.A9v15OZa25EcilUOjR36M1leInPvX46ShxFSQPrqpWI"
 
 # Headers for curl
-COMMON_HEADERS=(-H "accept: */*" -H "accept-language: en-US,en;q=0.9" -H "Cookie: argocd.token=$ARGOCD_TOKEN")
+COMMON_HEADERS=(-H "accept: */*" -H "accept-language: en-US,en;q=0.9" -H "Cookie: argocd.token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6IkFQSS1UT0tFTjpzdXBlci1hZG1pbi10b2tlbiIsInZlcnNpb24iOiIxIiwiaXNzIjoiYXBpVG9rZW5Jc3N1ZXIifQ.jS0Keid81Ix4c4uzE1T-RZonPQn2WTqax_FDlYRQJ5I")
 
 # Microservices and their App IDs
 declare -A appIds=(
@@ -65,30 +66,29 @@ get_cd_id_for_pipeline() {
   echo "URL: $url"
   
   local response
-  response=$(curl -s -w "%{http_code}" -H "Cookie: argocd.token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6IkFQSS1UT0tFTjpzdXBlci1hZG1pbi10b2tlbiIsInZlcnNpb24iOiIxIiwiaXNzIjoiYXBpVG9rZW5Jc3N1ZXIifQ.jS0Keid81Ix4c4uzE1T-RZonPQn2WTqax_FDlYRQJ5I" "$url" -o /dev/null)
-  if [[ $response -ne 200 ]]; then 
-    send_slack "😱get api of cd details giving $response" $thread_id
-    exit 1 
-  fi
+  response=$(curl -s -H "Cookie: argocd.token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6IkFQSS1UT0tFTjpzdXBlci1hZG1pbi10b2tlbiIsInZlcnNpb24iOiIxIiwiaXNzIjoiYXBpVG9rZW5Jc3N1ZXIifQ.jS0Keid81Ix4c4uzE1T-RZonPQn2WTqax_FDlYRQJ5I" "$url")
+  
+  echo "Response received (first 200 chars): ${response:0:200}"
   
   cdId=$(echo "$response" | jq -r --arg branch "$branch" '
     .result.pipelines[] 
     | select(.environmentName == $branch)
     | .id
-  ' ) || {send_slack "😱 Not able to parse the response of cd details get api for app $appId and for cd $branch" $thread_id ; exit 1 ;}
+  ' | head -1)
   
   if [[ -z "$cdId" || "$cdId" == "null" ]]; then
-   send_slack "😱 Not able to find cd id for app $appId and env $branch" $thread_id ;
-   exit 1 ;
+   send_slack "Not able to find cdId for app $appId and envName $branch" $thread_id
+   exit 1
   fi
-  output_var=$cdId
-  return 0
 }
 
 # Fetch latest deployed image from a CD pipeline
 get_latest_image() {
   local cdId=$1
+  
+  
   echo "Fetching latest deployed image for CD ID=$cdId..."
+  
   local currentUrl="$BASE_URL/app/cd-pipeline/$cdId/material?offset=0&size=20&stage=DEPLOY"
   echo "URL: $currentUrl"
   
@@ -104,19 +104,16 @@ get_latest_image() {
   ')
   
   if [[ -z "$image" ]]; then
-    send_slack "😱 Not able to find the image deployed on this env $cdId" $thread_id
+    send_slack " No latest image found for CD ID $cdId" $threadId
     exit 1 
   fi
-  
-  echo " Latest image: $image"
-  output_var=$image
-  return 0
 }
 
 # -------------------------
 # MAIN LOOP
 # -------------------------
-for svc in "${!appIds[@]}"; do
+fetchImages() {
+  for svc in "${!appIds[@]}"; do
   appId=${appIds[$svc]}
   branch=${userBranches[$svc]}
   
@@ -142,14 +139,6 @@ echo "================ Latest Images ================"
 for svc in "${!latestImages[@]}"; do
   echo "$svc => ${latestImages[$svc]}"
 done
-export dashboardImage="${latestImages[dashboard]}"
-export orchestratorImage="${latestImages[orchestrator]}"
-export casbinImage="${latestImages[casbin]}"
-export lensImage="${latestImages[lens]}"
-export gitSensorImage="${latestImages[gitSensor]}"
-export kubelinkImage="${latestImages[kubelink]}"
-export kubewatchImage="${latestImages[kubewatch]}"
-export imageScannerImage="${latestImages[imageScanner]}"
-export notifierImage= "${latestImages[notifier]}"
-export ciRunnerImage="${latestImages[ciRunner]}"
-export chartSyncImage="${latestImages[chartSync]}"
+send_slack "Images of all microservices has been fetched successfully " $thread_id
+}
+fetchImages
