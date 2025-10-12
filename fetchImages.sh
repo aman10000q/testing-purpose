@@ -141,4 +141,4 @@ for svc in "${!latestImages[@]}"; do
 done
 send_slack "Images of all microservices has been fetched successfully " $thread_id
 }
-fetchImages
+
