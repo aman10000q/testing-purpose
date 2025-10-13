@@ -82,7 +82,7 @@ for configName in "${migrationConfigs[@]}"; do
     pushd "$targetDir/${currentConfig[directory]}" > /dev/null
     for mig in "${migrationsToRunDown[@]}"; do
       echo "Running down migration: $mig"
-      migrate -path . -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" down
+      migrate -path . -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" down 1
     done
     popd > /dev/null
   else
