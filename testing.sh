@@ -31,7 +31,8 @@ declare -A lensMigrationConfig=(
   [cloneDir]="lens"
 )
 
-migrationConfigs=(orchMigrationConfig casbinMigrationConfig gitSensorMigrationConfig lensMigrationConfig)
+# migrationConfigs=(orchMigrationConfig casbinMigrationConfig gitSensorMigrationConfig lensMigrationConfig)
+migrationConfigs=(orchMigrationConfig)
 
 # Loop through configs
 for configName in "${migrationConfigs[@]}"; do
