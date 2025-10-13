@@ -69,7 +69,7 @@ for configName in "${migrationConfigs[@]}"; do
   echo "Cloning target branch ${currentConfig[branch]} into $tgtDir"
   git clone --depth 1 "https://$GIT_TOKEN@github.com/${currentConfig[repoUrl]}" -b "${currentConfig[branch]}" "$tgtDir"
 
-  # Get list of down migrations
+  # Get list of target migrations
   pushd "$tgtDir/${currentConfig[directory]}" > /dev/null
   targetMigrations=( $(ls | grep -E '^[0-9]+.*\.down\.sql$' | sort -rn) )
 
@@ -77,7 +77,9 @@ for configName in "${migrationConfigs[@]}"; do
   migrationsToRunDown=()
   for mig in "${targetMigrations[@]}"; do
     migNum=$(echo "$mig" | grep -oE '^[0-9]+')
-    if (( migNum > sourceLatestMigration )); then
+    migNumDec=$((10#$migNum))
+    sourceLatestDec=$((10#$sourceLatestMigration))
+    if (( migNumDec > sourceLatestDec )); then
       migrationsToRunDown+=("$mig")
     fi
   done
@@ -86,19 +88,12 @@ for configName in "${migrationConfigs[@]}"; do
   echo "Migration files to run down: ${migrationsToRunDown[*]}"
 
   # Run down migrations one by one
-  if [ ${#migrationsToRunDown[@]} -gt 0 ]; then
-    # Force DB to sourceLatestMigration version first
-    migrate -path . -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" force "$sourceLatestMigration"
-
-    # Apply each down migration individually
-    for ((i=0; i<${#migrationsToRunDown[@]}; i++)); do
-      migFile="${migrationsToRunDown[$i]}"
-      echo "Running down migration $((i+1)) for ${currentConfig[cloneDir]}: $migFile"
-      migrate -path . -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" down 1 -verbose
-    done
-  else
-    echo "No down migrations needed for ${currentConfig[cloneDir]}"
-  fi
+  for ((i=0; i<${#migrationsToRunDown[@]}; i++)); do
+    echo "Running down migration $((i+1)) for ${currentConfig[cloneDir]}"
+    
+    # Run a single step down
+    migrate -path . -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" down 1 -verbose
+  done
 
   popd > /dev/null
 done
