@@ -68,6 +68,10 @@ for configName in "${migrationConfigs[@]}"; do
   echo "Cloning target branch ${currentConfig[branch]} into $tgtDir"
   git clone --depth 1 "https://$GIT_TOKEN@github.com/${currentConfig[repoUrl]}" -b "${currentConfig[branch]}" "$tgtDir"
   
+  # Get current database version
+  currentDbVersion=$(PGPASSWORD=$PGPASSWORD psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER_NAME" -d orchestrator -t -c "SELECT version FROM schema_migrations;" | xargs)
+  echo "Current database version: $currentDbVersion"
+  
   # Get list of target migrations
   pushd "$tgtDir/${currentConfig[directory]}" > /dev/null
   targetMigrations=( $(ls | grep -E '^[0-9]+.*\.down\.sql$' | sort -rn) )
@@ -94,14 +98,32 @@ for configName in "${migrationConfigs[@]}"; do
     echo "Migration files to run down: ${migrationsToRunDown[*]}"
   fi
   
-  # Run down migrations one by one
-  for ((i=0; i<${#migrationsToRunDown[@]}; i++)); do
-    migrationFile="${migrationsToRunDown[$i]}"
-    echo "Running down migration $((i+1)) for ${currentConfig[cloneDir]}: $migrationFile"
+  # Calculate how many down steps we need
+  # Count migrations in target that are > sourceLatestMigration AND <= currentDbVersion
+  stepsToRun=0
+  currentDbVersionClean=$(echo "$currentDbVersion" | sed 's/^0*//')
+  currentDbVersionClean=${currentDbVersionClean:-0}
+  
+  for mig in "${targetMigrations[@]}"; do
+    migNum=$(echo "$mig" | grep -oE '^[0-9]+')
+    migNumClean=$(echo "$migNum" | sed 's/^0*//')
+    migNumClean=${migNumClean:-0}
     
-    # Run a single step down with proper flag placement
-    migrate -path . -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" -verbose down 1
+    if (( migNumClean > sourceLatestClean && migNumClean <= currentDbVersionClean )); then
+      ((stepsToRun++))
+    fi
   done
+  
+  echo "Actual down steps to run: $stepsToRun"
+  
+  # Run down migrations in a single batch
+  if [ $stepsToRun -gt 0 ]; then
+    echo "Running $stepsToRun down migration(s) for ${currentConfig[cloneDir]}"
+    migrate -path . -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" -verbose down $stepsToRun
+    echo "Completed down migrations for ${currentConfig[cloneDir]}"
+  else
+    echo "No migrations to run down for ${currentConfig[cloneDir]}"
+  fi
   
   popd > /dev/null
 done
