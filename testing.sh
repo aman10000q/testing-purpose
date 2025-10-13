@@ -60,7 +60,7 @@ for configName in "${migrationConfigs[@]}"; do
 
   # Get latest migration number for source
   pushd "$srcDir/${currentConfig[directory]}" > /dev/null
-  sourceLatestMigration=$(ls | grep -E '^[0-9]+' | sed -E 's/^([0-9]+).*/\1/' | sort -n | tail -1)
+  sourceLatestMigration=$(ls | grep -E '^[0-9]+' | sed -E 's/^0*([0-9]+).*/\1/' | sort -n | tail -1)
   popd > /dev/null
   echo "Source-of-truth latest migration: $sourceLatestMigration"
 
@@ -71,14 +71,13 @@ for configName in "${migrationConfigs[@]}"; do
 
   # Get list of down migrations
   pushd "$tgtDir/${currentConfig[directory]}" > /dev/null
-  targetMigrations=( $(ls | grep -E '^[0-9]+.*\.sql$' | sort -rn) )
+  targetMigrations=( $(ls | grep -E '^[0-9]+.*\.down\.sql$' | sort -rn) )
 
   # Collect down migrations (those greater than sourceLatestMigration)
   migrationsToRunDown=()
   for mig in "${targetMigrations[@]}"; do
-    migNum=$(echo "$mig" | grep -oE '^[0-9]+')
-    migNum=$((10#$migNum))  # safely convert to decimal to avoid leading zero errors
-    if (( migNum > sourceLatestMigration )) && [[ "$mig" == *.down.sql ]]; then
+    migNum=$(echo "$mig" | grep -oE '^[0-9]+' | sed -E 's/^0*//')
+    if (( migNum > sourceLatestMigration )); then
       migrationsToRunDown+=("$mig")
     fi
   done
@@ -86,20 +85,16 @@ for configName in "${migrationConfigs[@]}"; do
   echo "${currentConfig[cloneDir]}: Down migrations to run count: ${#migrationsToRunDown[@]}"
   echo "Migration files to run down: ${migrationsToRunDown[*]}"
 
+  # Force DB version to sourceLatestMigration
+  migrate -path "$PWD" \
+    -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" \
+    force "$sourceLatestMigration"
+
   # Run down migrations one by one
   for ((i=0; i<${#migrationsToRunDown[@]}; i++)); do
     migFile="${migrationsToRunDown[$i]}"
-    migNum=$(echo "$migFile" | grep -oE '^[0-9]+')
-    migNum=$((10#$migNum))
-
     echo "Running down migration $((i+1)) for ${currentConfig[cloneDir]}: $migFile"
 
-    # Force migrate to this version
-    migrate -path "$PWD" \
-      -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" \
-      force "$migNum"
-
-    # Now run down 1 migration
     migrate -path "$PWD" \
       -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" \
       down 1 -verbose
