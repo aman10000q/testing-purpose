@@ -60,7 +60,7 @@ for configName in "${migrationConfigs[@]}"; do
 
   # Get latest migration number for source
   pushd "$srcDir/${currentConfig[directory]}" > /dev/null
-  sourceLatestMigration=$(ls | grep -E '^[0-9]+' | sed -E 's/^0*([0-9]+).*/\1/' | sort -n | tail -1)
+  sourceLatestMigration=$(ls | grep -E '^[0-9]+' | sed -E 's/^([0-9]+).*/\1/' | sort -n | tail -1)
   popd > /dev/null
   echo "Source-of-truth latest migration: $sourceLatestMigration"
 
@@ -76,7 +76,7 @@ for configName in "${migrationConfigs[@]}"; do
   # Collect down migrations (those greater than sourceLatestMigration)
   migrationsToRunDown=()
   for mig in "${targetMigrations[@]}"; do
-    migNum=$(echo "$mig" | grep -oE '^[0-9]+' | sed -E 's/^0*//')
+    migNum=$(echo "$mig" | grep -oE '^[0-9]+')
     if (( migNum > sourceLatestMigration )); then
       migrationsToRunDown+=("$mig")
     fi
@@ -85,20 +85,20 @@ for configName in "${migrationConfigs[@]}"; do
   echo "${currentConfig[cloneDir]}: Down migrations to run count: ${#migrationsToRunDown[@]}"
   echo "Migration files to run down: ${migrationsToRunDown[*]}"
 
-  # Force DB version to sourceLatestMigration
-  migrate -path "$PWD" \
-    -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" \
-    force "$sourceLatestMigration"
-
   # Run down migrations one by one
-  for ((i=0; i<${#migrationsToRunDown[@]}; i++)); do
-    migFile="${migrationsToRunDown[$i]}"
-    echo "Running down migration $((i+1)) for ${currentConfig[cloneDir]}: $migFile"
+  if [ ${#migrationsToRunDown[@]} -gt 0 ]; then
+    # Force DB to sourceLatestMigration version first
+    migrate -path . -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" force "$sourceLatestMigration"
 
-    migrate -path "$PWD" \
-      -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" \
-      down 1 -verbose
-  done
+    # Apply each down migration individually
+    for ((i=0; i<${#migrationsToRunDown[@]}; i++)); do
+      migFile="${migrationsToRunDown[$i]}"
+      echo "Running down migration $((i+1)) for ${currentConfig[cloneDir]}: $migFile"
+      migrate -path . -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" down 1 -verbose
+    done
+  else
+    echo "No down migrations needed for ${currentConfig[cloneDir]}"
+  fi
 
   popd > /dev/null
 done
