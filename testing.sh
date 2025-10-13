@@ -34,7 +34,9 @@ declare -A lensMigrationConfig=(
   [cloneDir]="lens"
 )
 
-migrationConfigs=(orchMigrationConfig casbinMigrationConfig gitSensorMigrationConfig lensMigrationConfig)
+# migrationConfigs=(orchMigrationConfig casbinMigrationConfig gitSensorMigrationConfig lensMigrationConfig)
+migrationConfigs=(orchMigrationConfig)
+
 
 # ---------------- Migration processing ----------------
 for configName in "${migrationConfigs[@]}"; do
@@ -60,6 +62,7 @@ for configName in "${migrationConfigs[@]}"; do
   # Get latest migration number for source
   pushd "$srcDir/${currentConfig[directory]}" > /dev/null
   sourceLatestMigration=$(ls | grep -E '^[0-9]+' | sed -E 's/^([0-9]+).*/\1/' | sort -n | tail -1)
+  sourceLatestMigration=$((10#$sourceLatestMigration))  # Strip leading zeros
   popd > /dev/null
   echo "Source-of-truth latest migration: $sourceLatestMigration"
 
@@ -70,13 +73,14 @@ for configName in "${migrationConfigs[@]}"; do
 
   # Get list of down migrations
   pushd "$tgtDir/${currentConfig[directory]}" > /dev/null
-  targetMigrations=( $(ls | grep -E '^[0-9]+.*\.sql$' | sort -rn) )
+  targetMigrations=( $(ls | grep -E '^[0-9]+.*\.down\.sql$' | sort -rn) )
 
   # Collect down migrations (those greater than sourceLatestMigration)
   migrationsToRunDown=()
   for mig in "${targetMigrations[@]}"; do
     migNum=$(echo "$mig" | grep -oE '^[0-9]+')
-    if (( migNum > sourceLatestMigration )) && [[ "$mig" == *.down.sql ]]; then
+    migNum=$((10#$migNum))
+    if (( migNum > sourceLatestMigration )); then
       migrationsToRunDown+=("$mig")
     fi
   done
@@ -88,10 +92,22 @@ for configName in "${migrationConfigs[@]}"; do
   for ((i=0; i<${#migrationsToRunDown[@]}; i++)); do
     migFile="${migrationsToRunDown[$i]}"
     echo "Running down migration $((i+1)) for ${currentConfig[cloneDir]}: $migFile"
-    
-    # Apply down migration
-    migrate -path . -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" force $(echo "$migFile" | grep -oE '^[0-9]+')
-    migrate -path . -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" down 1 -verbose
+
+    migNum=$(echo "$migFile" | grep -oE '^[0-9]+')
+    migNum=$((10#$migNum))
+
+    # Run migrate: force to version, then down 1
+    migrate -path "$PWD" \
+        -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" \
+        force "$migNum"
+
+    migrate -path "$PWD" \
+        -database "postgres://$DB_USER_NAME:$DB_PASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" \
+        down 1 -verbose
+
+    # Show current schema_migrations
+    psql "postgres://$DB_USER_NAME:$DB_PASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" \
+        -c "SELECT version, dirty FROM schema_migrations;"
   done
 
   popd > /dev/null
