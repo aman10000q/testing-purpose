@@ -72,58 +72,60 @@ for configName in "${migrationConfigs[@]}"; do
   currentDbVersion=$(PGPASSWORD=$PGPASSWORD psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER_NAME" -d orchestrator -t -c "SELECT version FROM schema_migrations;" | xargs)
   echo "Current database version: $currentDbVersion"
   
-  # Get list of target migrations
-  pushd "$tgtDir/${currentConfig[directory]}" > /dev/null
-  targetMigrations=( $(ls | grep -E '^[0-9]+.*\.down\.sql$' | sort -rn) )
-  
-  # Collect down migrations (those greater than sourceLatestMigration)
-  migrationsToRunDown=()
-  for mig in "${targetMigrations[@]}"; do
-    migNum=$(echo "$mig" | grep -oE '^[0-9]+')
-    # Remove leading zeros to avoid octal interpretation
-    migNumClean=$(echo "$migNum" | sed 's/^0*//')
-    sourceLatestClean=$(echo "$sourceLatestMigration" | sed 's/^0*//')
-    
-    # Handle empty strings (in case all digits were zeros)
-    migNumClean=${migNumClean:-0}
-    sourceLatestClean=${sourceLatestClean:-0}
-    
-    if (( migNumClean > sourceLatestClean )); then
-      migrationsToRunDown+=("$mig")
-    fi
-  done
-  
-  echo "${currentConfig[cloneDir]}: Down migrations to run count: ${#migrationsToRunDown[@]}"
-  if [ ${#migrationsToRunDown[@]} -gt 0 ]; then
-    echo "Migration files to run down: ${migrationsToRunDown[*]}"
-  fi
-  
-  # Calculate how many down steps we need
-  # Count migrations in target that are > sourceLatestMigration AND <= currentDbVersion
-  stepsToRun=0
+  # Remove leading zeros for comparison
+  sourceLatestClean=$(echo "$sourceLatestMigration" | sed 's/^0*//')
+  sourceLatestClean=${sourceLatestClean:-0}
   currentDbVersionClean=$(echo "$currentDbVersion" | sed 's/^0*//')
   currentDbVersionClean=${currentDbVersionClean:-0}
   
+  echo "Comparing migrations: source=$sourceLatestClean, current_db=$currentDbVersionClean"
+  
+  # Get list of target migrations and count steps
+  pushd "$tgtDir/${currentConfig[directory]}" > /dev/null
+  
+  # Get all down migration files
+  mapfile -t targetMigrations < <(ls | grep -E '^[0-9]+.*\.down\.sql$' | sort -rn)
+  
+  echo "Total down migration files found: ${#targetMigrations[@]}"
+  
+  # Collect migrations to display and count steps
+  migrationsToDisplay=()
+  stepsToRun=0
+  
   for mig in "${targetMigrations[@]}"; do
     migNum=$(echo "$mig" | grep -oE '^[0-9]+')
     migNumClean=$(echo "$migNum" | sed 's/^0*//')
     migNumClean=${migNumClean:-0}
     
+    # Migrations to display: all that are > sourceLatest
+    if (( migNumClean > sourceLatestClean )); then
+      migrationsToDisplay+=("$mig")
+    fi
+    
+    # Steps to run: only those > sourceLatest AND <= currentDb
     if (( migNumClean > sourceLatestClean && migNumClean <= currentDbVersionClean )); then
       ((stepsToRun++))
     fi
   done
   
-  echo "Actual down steps to run: $stepsToRun"
+  echo "${currentConfig[cloneDir]}: Down migrations to run count: ${#migrationsToDisplay[@]}"
+  if [ ${#migrationsToDisplay[@]} -gt 0 ]; then
+    echo "Migration files to run down: ${migrationsToDisplay[*]}"
+  fi
+  echo "Actual down steps to execute: $stepsToRun"
   
   # Run down migrations in a single batch
   if [ $stepsToRun -gt 0 ]; then
-    echo "Running $stepsToRun down migration(s) for ${currentConfig[cloneDir]}"
+    echo "Executing $stepsToRun down migration(s) for ${currentConfig[cloneDir]}"
     migrate -path . -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" -verbose down $stepsToRun
-    echo "Completed down migrations for ${currentConfig[cloneDir]}"
+    echo "✓ Completed down migrations for ${currentConfig[cloneDir]}"
   else
-    echo "No migrations to run down for ${currentConfig[cloneDir]}"
+    echo "No migrations to execute for ${currentConfig[cloneDir]}"
   fi
   
   popd > /dev/null
 done
+
+echo "===================================================="
+echo "✓ Migration check completed successfully"
+echo "===================================================="
