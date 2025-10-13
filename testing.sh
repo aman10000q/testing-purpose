@@ -41,7 +41,9 @@ declare -A lensMigrationConfig=(
   [migToRunDown]=0
 )
 
-migrationConfigs=(orchMigrationConfig casbinMigrationConfig gitSensorMigrationConfig lensMigrationConfig)
+#migrationConfigs=(orchMigrationConfig casbinMigrationConfig gitSensorMigrationConfig lensMigrationConfig)
+migrationConfigs=(orchMigrationConfig)
+
 
 # ----------------------------
 # MAIN LOOP
