@@ -1,14 +1,14 @@
 #!/bin/bash
-set -euo pipefail
+set -e
 
-echo " Testing the Database Connection..."
-PGPASSWORD=$PGPASSWORD psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER_NAME" -d orchestrator -t -c "SELECT * FROM schema_migrations;" >/dev/null
-echo " Database connection successful."
+echo "Testing the Database Connection..."
+PGPASSWORD=$PGPASSWORD psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER_NAME" -d orchestrator -t -c "SELECT 1;" >/dev/null
+echo "Database connection successful."
+echo
 
-# -------------------------------
-# MIGRATION CONFIGS
-# -------------------------------
-
+# ----------------------------
+# MIGRATION CONFIGURATIONS
+# ----------------------------
 declare -A orchMigrationConfig=(
   [repoUrl]="devtron-labs/devtron-enterprise"
   [branch]="$orchBranch"
@@ -41,18 +41,13 @@ declare -A lensMigrationConfig=(
   [migToRunDown]=0
 )
 
-# Array of associative array names
 migrationConfigs=(orchMigrationConfig casbinMigrationConfig gitSensorMigrationConfig lensMigrationConfig)
 
-# -------------------------------
-# MIGRATION LOOP
-# -------------------------------
-
+# ----------------------------
+# MAIN LOOP
+# ----------------------------
 for configName in "${migrationConfigs[@]}"; do
   declare -n currentConfig="$configName"
-
-  sourceOfTruthLatestMigration=0
-  targetLatestMigration=0
 
   echo "===================================================="
   echo "🔧 Checking migrations for ${currentConfig[cloneDir]}"
@@ -60,62 +55,55 @@ for configName in "${migrationConfigs[@]}"; do
   echo "Branch: ${currentConfig[branch]}"
   echo "===================================================="
 
-  # Compare sourceOfTruth branch with target branch
+  sourceOfTruthLatestMigration=0
+  targetLatestMigration=0
+
+  # Skip if same as source-of-truth
+  if [[ "${currentConfig[branch]}" == "$sourceOfTruth" ]]; then
+    echo "[INFO] Source-of-truth and target branch are same (${currentConfig[branch]}). Skipping comparison."
+    continue
+  fi
+
   for branch in "$sourceOfTruth" "${currentConfig[branch]}"; do
-    directoryForCloning="repo-${currentConfig[cloneDir]}-$branch"
+    directoryForCloning="testing-${currentConfig[cloneDir]}-$branch"
     repoUrl="https://$GIT_TOKEN@github.com/${currentConfig[repoUrl]}"
 
-    echo " Cloning $repoUrl (branch: $branch)..."
-    git clone --depth 1 -b "$branch" "$repoUrl" "$directoryForCloning" >/dev/null 2>&1
+    echo "Cloning $repoUrl (branch: $branch)..."
+    rm -rf "$directoryForCloning"
+    git clone --depth 1 "$repoUrl" -b "$branch" "$directoryForCloning"
 
     pushd "$directoryForCloning/${currentConfig[directory]}" >/dev/null
 
-    # Get highest migration number (based on file prefix)
     latestMigration=$(ls | grep -E '^[0-9]+' | sed -E 's/^([0-9]+).*/\1/' | sort -n | tail -1 || echo 0)
+    echo "Latest migration in $branch: $latestMigration"
 
     if [[ "$branch" == "$sourceOfTruth" ]]; then
       sourceOfTruthLatestMigration=$latestMigration
-      echo " Source-of-truth migration: $sourceOfTruthLatestMigration"
     else
       targetLatestMigration=$latestMigration
-      echo "Target branch migration: $targetLatestMigration"
-
-      diff=$((targetLatestMigration - sourceOfTruthLatestMigration))
-      if (( diff < 0 )); then
-        diff=$((diff * -1))
-      fi
-      currentConfig[migToRunDown]=$diff
+      currentConfig[migToRunDown]=$((targetLatestMigration - sourceOfTruthLatestMigration))
     fi
 
     popd >/dev/null
   done
 
-  echo " ${currentConfig[cloneDir]}: Migrations to run down: ${currentConfig[migToRunDown]}"
+  echo "${currentConfig[cloneDir]}: Migrations to run down: ${currentConfig[migToRunDown]}"
 
-  # Run down migrations if required
-  if (( currentConfig[migToRunDown] > 0 )); then
-    echo "Running ${currentConfig[migToRunDown]} down migrations for ${currentConfig[cloneDir]}..."
+  # ----------------------------
+  # RUN DOWN MIGRATIONS
+  # ----------------------------
+  if [[ ${currentConfig[migToRunDown]} -gt 0 ]]; then
+    migrationDir="testing-${currentConfig[cloneDir]}-${currentConfig[branch]}/${currentConfig[directory]}"
+    echo "Running ${currentConfig[migToRunDown]} down migrations in $migrationDir..."
 
-    migrate -path "$directoryForCloning/${currentConfig[directory]}" \
-      -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" \
-      down "${currentConfig[migToRunDown]}" || {
-        echo " Migration failed for ${currentConfig[cloneDir]}"
-        exit 1
-      }
+    pushd "$migrationDir" >/dev/null
+    migrate -path . -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" down ${currentConfig[migToRunDown]}
+    popd >/dev/null
 
-    echo " Successfully ran ${currentConfig[migToRunDown]} down migrations for ${currentConfig[cloneDir]}"
-
+    echo "Schema migrations table updated automatically by migrate tool."
   else
-    echo " No down migrations needed for ${currentConfig[cloneDir]}"
+    echo "No migrations to run down."
   fi
 
-  # Verify schema_migrations table
-  echo " Verifying schema_migrations table for ${currentConfig[cloneDir]}:"
-  PGPASSWORD=$PGPASSWORD psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER_NAME" -d orchestrator -c "SELECT version, dirty FROM schema_migrations;"
-
-  # Cleanup cloned repo
-  rm -rf "$directoryForCloning"
-
+  echo
 done
-
-echo " All migrations processed successfully!"
