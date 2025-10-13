@@ -1,29 +1,32 @@
 #!/bin/bash
-set -euo pipefail
+set -e
 
 echo "Testing the Database Connection..."
-PGPASSWORD=$PGPASSWORD psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER_NAME" -d orchestrator -t -c "SELECT * FROM schema_migrations;"
+PGPASSWORD=$PGPASSWORD psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER_NAME" -d orchestrator -c "SELECT * FROM schema_migrations;"
 echo "Connection done"
 
-# Migration configs
+# Define migration configs
 declare -A orchMigrationConfig=(
   [repoUrl]="devtron-labs/devtron-enterprise"
   [branch]="$orchBranch"
   [directory]="scripts/sql"
   [cloneDir]="orch"
 )
+
 declare -A casbinMigrationConfig=(
   [repoUrl]="devtron-labs/devtron-enterprise"
   [branch]="$casbinBranch"
   [directory]="scripts/casbin"
   [cloneDir]="casbin"
 )
+
 declare -A gitSensorMigrationConfig=(
   [repoUrl]="devtron-labs/devtron-services-enterprise"
   [branch]="$gitSensorBranch"
   [directory]="git-sensor/scripts/sql"
   [cloneDir]="git"
 )
+
 declare -A lensMigrationConfig=(
   [repoUrl]="devtron-labs/lens"
   [branch]="$lensBranch"
@@ -31,10 +34,10 @@ declare -A lensMigrationConfig=(
   [cloneDir]="lens"
 )
 
-# migrationConfigs=(orchMigrationConfig casbinMigrationConfig gitSensorMigrationConfig lensMigrationConfig)
+#migrationConfigs=(orchMigrationConfig casbinMigrationConfig gitSensorMigrationConfig lensMigrationConfig)
 migrationConfigs=(orchMigrationConfig)
 
-# Loop through configs
+# Loop through each config
 for configName in "${migrationConfigs[@]}"; do
   declare -n currentConfig="$configName"
 
@@ -44,49 +47,39 @@ for configName in "${migrationConfigs[@]}"; do
   echo "Branch: ${currentConfig[branch]}"
   echo "===================================================="
 
-  # Directories for cloning
-  sourceDir="testing-${currentConfig[cloneDir]}-$sourceOfTruth"
-  targetDir="testing-${currentConfig[cloneDir]}-${currentConfig[branch]}"
-  
-  repoUrl="https://$GIT_TOKEN@github.com/${currentConfig[repoUrl]}"
+  # Clone source-of-truth and target branch separately
+  for branch in "$sourceOfTruth" "${currentConfig[branch]}"; do
+    dirName="testing-${currentConfig[cloneDir]}-$branch"
+    repoUrl="https://$GIT_TOKEN@github.com/${currentConfig[repoUrl]}"
+    
+    echo "Cloning $repoUrl branch $branch into $dirName"
+    rm -rf "$dirName"
+    git clone --depth 1 "$repoUrl" -b "$branch" "$dirName"
 
-  # Clone source-of-truth branch
-  echo "Cloning $repoUrl branch $sourceOfTruth into $sourceDir"
-  git clone --depth 1 "$repoUrl" -b "$sourceOfTruth" "$sourceDir"
+    pushd "$dirName/${currentConfig[directory]}" > /dev/null
 
-  # Clone target branch
-  echo "Cloning $repoUrl branch ${currentConfig[branch]} into $targetDir"
-  git clone --depth 1 "$repoUrl" -b "${currentConfig[branch]}" "$targetDir"
+    latestMigration=$(ls | grep -E '^[0-9]+' | sed -E 's/^([0-9]+).*/\1/' | sort -n | tail -1)
+    echo "Latest migration in $branch: $latestMigration"
 
-  # Get migration files
-  pushd "$sourceDir/${currentConfig[directory]}" > /dev/null
-  mapfile -t sourceMigrations < <(ls -1 | grep -E '^[0-9]+' | sort)
-  popd > /dev/null
-
-  pushd "$targetDir/${currentConfig[directory]}" > /dev/null
-  mapfile -t targetMigrations < <(ls -1 | grep -E '^[0-9]+' | sort)
-  popd > /dev/null
-
-  # Determine migrations to run down
-  migrationsToRunDown=()
-  for mig in "${targetMigrations[@]}"; do
-    if [[ ! " ${sourceMigrations[*]} " =~ " $mig " ]]; then
-      migrationsToRunDown+=("$mig")
+    if [[ "$branch" == "$sourceOfTruth" ]]; then
+      sourceLatest=$latestMigration
+    else
+      targetLatest=$latestMigration
     fi
+
+    popd > /dev/null
   done
 
-  echo "${currentConfig[cloneDir]}: Migrations to run down count: ${#migrationsToRunDown[@]}"
-  if [[ ${#migrationsToRunDown[@]} -gt 0 ]]; then
-    echo "Migration versions to run down: ${migrationsToRunDown[*]}"
-    
-    pushd "$targetDir/${currentConfig[directory]}" > /dev/null
-    for mig in "${migrationsToRunDown[@]}"; do
-      echo "Running down migration: $mig"
-      migrate -path . -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" down 1
-    done
-    popd > /dev/null
-  else
-    echo "No migrations to run down for ${currentConfig[cloneDir]}"
-  fi
+  # Calculate how many down migrations to apply
+  toRunDown=$((targetLatest - sourceLatest))
+  echo "${currentConfig[cloneDir]}: Down migrations to run: $toRunDown"
+
+  # Run down migrations using migrate CLI
+  pushd "testing-${currentConfig[cloneDir]}-${currentConfig[branch]}/${currentConfig[directory]}" > /dev/null
+  for ((i=0; i<toRunDown; i++)); do
+    echo "Running down migration $((i+1)) for ${currentConfig[cloneDir]}"
+    migrate -path . -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" down 1
+  done
+  popd > /dev/null
 
 done
