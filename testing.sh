@@ -71,14 +71,14 @@ for configName in "${migrationConfigs[@]}"; do
 
   # Get list of down migrations
   pushd "$tgtDir/${currentConfig[directory]}" > /dev/null
-  targetMigrations=( $(ls | grep -E '^[0-9]+.*\.down\.sql$' | sort -rn) )
+  targetMigrations=( $(ls | grep -E '^[0-9]+.*\.sql$' | sort -rn) )
 
   # Collect down migrations (those greater than sourceLatestMigration)
   migrationsToRunDown=()
   for mig in "${targetMigrations[@]}"; do
     migNum=$(echo "$mig" | grep -oE '^[0-9]+')
-    migNum=$((10#$migNum))  # convert safely to decimal
-    if (( migNum > sourceLatestMigration )); then
+    migNum=$((10#$migNum))  # safely convert to decimal to avoid leading zero errors
+    if (( migNum > sourceLatestMigration )) && [[ "$mig" == *.down.sql ]]; then
       migrationsToRunDown+=("$mig")
     fi
   done
@@ -90,16 +90,16 @@ for configName in "${migrationConfigs[@]}"; do
   for ((i=0; i<${#migrationsToRunDown[@]}; i++)); do
     migFile="${migrationsToRunDown[$i]}"
     migNum=$(echo "$migFile" | grep -oE '^[0-9]+')
-    migNum=$((10#$migNum))  # avoid octal issue
+    migNum=$((10#$migNum))
 
     echo "Running down migration $((i+1)) for ${currentConfig[cloneDir]}: $migFile"
 
-    # Run migrate force to set the current version
+    # Force migrate to this version
     migrate -path "$PWD" \
       -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" \
       force "$migNum"
 
-    # Then run down 1 migration
+    # Now run down 1 migration
     migrate -path "$PWD" \
       -database "postgres://$DB_USER_NAME:$PGPASSWORD@$DB_HOST:$DB_PORT/orchestrator?sslmode=disable" \
       down 1 -verbose
