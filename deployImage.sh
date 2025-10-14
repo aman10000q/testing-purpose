@@ -1,24 +1,26 @@
 #!/bin/bash
-set -euo pipefail
+set -e pipefail
+source sourcecode/fetchImages.sh
 apt update && apt install -yq tzdata jq curl
-
 baseUrl="https://staging.devtron.info/orchestrator"
 
+fetchImages
+
 declare -A microservicesAppIds=(
-  # [casbin]=1064
-  # [dashboard]=1072
+  [casbin]=1064
+  [dashboard]=1072
   [orchestrator]=1929
-  # [kubelink]=1063
-  # [kubewatch]=1070
-  # [lens]=1071
-  # [notifier]=1069
-  # [imageScanner]=1067
-  # [gitSensor]=1135
+  [kubelink]=1063
+  [kubewatch]=1070
+  [lens]=1071
+  [notifier]=1069
+  [imageScanner]=1067
+  [gitSensor]=1135
 )
 
 declare -A qaVmCdIds=(
   [qa-devtroncd-5]=0
-  # [qa-devtroncd-4]=0
+  [qa-devtroncd-4]=0
 )
 declare -A qaVmEnvIds=(
   [qa-devtroncd-5]=0
@@ -29,17 +31,17 @@ declare -A orchCmIdInVms=(
   [qa-devtroncd-4]=470
 )
 declare -A microserviceImages=(
-  [casbin]=""
-  [dashboard]=""
-  [orchestrator]="asia-south1-docker.pkg.dev/devtron-non-prod/stage-registry/orchestrator:176ae883-11303-92199"
-  [kubelink]=""
-  [kubewatch]=""
-  [lens]=""
-  [notifier]=""
-  [imageScanner]=""
-  [gitSensor]=""
-  [ciRunner]="quay.io/devtron/test:aa40b4e7-2589-91616"
-  [chartSync]="asia-south1-docker.pkg.dev/devtron-non-prod/stage-registry/chart-sync:aa40b4e7-4047-91620"
+  [casbin]="${latestImages[casbin]}"
+  [dashboard]="${latestImages[dashboard]}"
+  [orchestrator]="${latestImages[orchestrator]}"
+  [kubelink]="${latestImages[kubelink]}"
+  [kubewatch]="${latestImages[kubewatch]}"
+  [lens]="${latestImages[lens]}"
+  [notifier]="${latestImages[notifier]}"
+  [imageScanner]="${latestImages[imageScanner]}"
+  [gitSensor]="${latestImages[gitSensor]}"
+  [ciRunner]="${latestImages[ciRunner]}"
+  [chartSync]="${latestImages[chartSync]}"
 )
 
 TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6IkFQSS1UT0tFTjpzdXBlci1hZG1pbi10b2tlbiIsInZlcnNpb24iOiIxIiwiaXNzIjoiYXBpVG9rZW5Jc3N1ZXIifQ.jS0Keid81Ix4c4uzE1T-RZonPQn2WTqax_FDlYRQJ5I"
@@ -48,9 +50,14 @@ getQaCdIds() {
   local appId=$1
   local vmName=$2
   local apiEndpoint="$baseUrl/app/cd-pipeline/$appId"
+  qaVmCdIds[$vmName]=0
   local response
   response=$(curl -s -H "Cookie: argocd.token=$TOKEN" "$apiEndpoint")
   qaVmCdIds[$vmName]=$(echo "$response" | jq --arg envName "$vmName" -r '.result.pipelines[]? | select(.environmentName == $envName) | .parentPipelineId' 2>/dev/null || echo "")
+  if [[ qaVmCdIds[$vmName] == 0 || qaVmCdIds[$vmName] == null ]]; then 
+    send_slack "⏺️ Error in getting external ci Id for app $appId ❌" $thread_id;
+    exit 1 
+  fi
 }
 
 getQaEnvIds(){
@@ -59,6 +66,10 @@ getQaEnvIds(){
   local response
   response=$(curl -s -H "Cookie: argocd.token=$TOKEN" "$apiEndPoint")
   envId=$(echo "$response" | jq --arg env $envName -r '.result[] | select(.environment_name == $env) | .id')
+  if [[ -z envId || envId == null ]]; then 
+    send_slack "⏺️ Not able to find the env id for env $env ❌" $thread_id 
+    exit 1
+  fi
 }
 
 triggerDeployment(){
@@ -67,13 +78,17 @@ triggerDeployment(){
   echo $envIdToTrigger
   local imageToDeploy=$2
   local apiEndpoint="$baseUrl/webhook/ext-ci/$envIdToTrigger"
-  curl -s -H "Cookie: argocd.token=$TOKEN" -H "api-token: $TOKEN" -X POST "$apiEndpoint" -d "{\"dockerImage\":\"$imageToDeploy\"}"
+  local response=$(curl -s -w "%{http_code}" -H "Cookie: argocd.token=$TOKEN" -H "api-token: $TOKEN" -X POST "$apiEndpoint" -d "{\"dockerImage\":\"$imageToDeploy\"}" -o /dev/null)
+  if [[ response -ne 200 ]]; then 
+    send_slack "⏺️ Error in triggering the envId $envIdToTrigger ❌" $thread_id
+    exit 1 
+  fi
 }
 
 waitForNewResources() {
   local appId=$1
   local environmentId=$2
-  local maxRetries=5
+  local maxRetries=60
   local sleepSeconds=5
   local apiEndPoint="$baseUrl/app/detail/resource-tree?app-id=$appId&env-id=$environmentId"
 
@@ -87,7 +102,7 @@ waitForNewResources() {
     local status
     status=$(echo "$response" | jq -r '
       .result.nodes[]?
-      | select(.name | contains("qa-migrate"))
+      | select(.name | contains("-migrate"))
       | select(.kind == "Job")
       | .health.status // empty
     ')
@@ -98,8 +113,8 @@ waitForNewResources() {
     fi
 
     if [[ $i -eq $maxRetries ]]; then
-      echo "Resource did not become Healthy after $maxRetries attempts."
-      return 1
+      send_slack "⏺️ Resource $appId app and env $environmentId did not become Healthy after $maxRetries attempts ❌" $thread_Id
+      exit  1
     fi
 
     sleep "$sleepSeconds"
@@ -189,3 +204,4 @@ for microserviceId in "${!microservicesAppIds[@]}"; do
     fi
   done
 done
+send_slack "⏺️ All microservices have been succesfully deployed and new Resources have come ✅" $thread_id
